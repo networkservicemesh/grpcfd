@@ -14,12 +14,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//go:build !windows
 // +build !windows
 
 package grpcfd
 
 import (
 	context "context"
+	"fmt"
+	"log"
 	"os"
 
 	"github.com/edwarnicke/serialize"
@@ -61,7 +64,7 @@ func (w *wrapPerRPCCredentials) RequireTransportSecurity() bool {
 }
 
 func (w *wrapPerRPCCredentials) SendFD(fd uintptr) <-chan error {
-	out := make(chan error, 1)
+	out := make(chan error, 10)
 	w.executor.AsyncExec(func() {
 		if w.FDTransceiver != nil {
 			go joinErrChs(w.FDTransceiver.SendFD(fd), out)
@@ -75,7 +78,7 @@ func (w *wrapPerRPCCredentials) SendFD(fd uintptr) <-chan error {
 }
 
 func (w *wrapPerRPCCredentials) SendFile(file SyscallConn) <-chan error {
-	out := make(chan error, 1)
+	out := make(chan error, 10)
 	w.executor.AsyncExec(func() {
 		if w.FDTransceiver != nil {
 			go joinErrChs(w.FDTransceiver.SendFile(file), out)
@@ -89,7 +92,7 @@ func (w *wrapPerRPCCredentials) SendFile(file SyscallConn) <-chan error {
 }
 
 func (w *wrapPerRPCCredentials) RecvFD(dev, inode uint64) <-chan uintptr {
-	out := make(chan uintptr, 1)
+	out := make(chan uintptr, 10)
 	w.executor.AsyncExec(func() {
 		if w.FDTransceiver != nil {
 			go joinFDChs(w.FDTransceiver.RecvFD(dev, inode), out)
@@ -103,7 +106,7 @@ func (w *wrapPerRPCCredentials) RecvFD(dev, inode uint64) <-chan uintptr {
 }
 
 func (w *wrapPerRPCCredentials) RecvFile(dev, ino uint64) <-chan *os.File {
-	out := make(chan *os.File, 1)
+	out := make(chan *os.File, 10)
 	w.executor.AsyncExec(func() {
 		if w.FDTransceiver != nil {
 			go joinFileChs(w.FDTransceiver.RecvFile(dev, ino), out)
@@ -121,7 +124,7 @@ func (w *wrapPerRPCCredentials) RecvFileByURL(urlStr string) (<-chan *os.File, e
 	if err != nil {
 		return nil, err
 	}
-	out := make(chan *os.File, 1)
+	out := make(chan *os.File, 10)
 	w.executor.AsyncExec(func() {
 		if w.FDTransceiver != nil {
 			go joinFileChs(w.FDTransceiver.RecvFile(dev, ino), out)
@@ -139,7 +142,7 @@ func (w *wrapPerRPCCredentials) RecvFDByURL(urlStr string) (<-chan uintptr, erro
 	if err != nil {
 		return nil, err
 	}
-	out := make(chan uintptr, 1)
+	out := make(chan uintptr, 10)
 	w.executor.AsyncExec(func() {
 		if w.FDTransceiver != nil {
 			go joinFDChs(w.FDTransceiver.RecvFD(dev, ino), out)
@@ -153,6 +156,8 @@ func (w *wrapPerRPCCredentials) RecvFDByURL(urlStr string) (<-chan uintptr, erro
 }
 
 func joinErrChs(in <-chan error, out chan<- error) {
+	log.Default().Println("grpcfd: joinErrChs start: " + fmt.Sprint(goid()))
+	defer log.Default().Println("grpcfd: joinErrChs end: " + fmt.Sprint(goid()))
 	for err := range in {
 		out <- err
 	}
@@ -160,6 +165,8 @@ func joinErrChs(in <-chan error, out chan<- error) {
 }
 
 func joinFileChs(in <-chan *os.File, out chan<- *os.File) {
+	log.Default().Println("grpcfd: joinFileChs start: " + fmt.Sprint(goid()))
+	defer log.Default().Println("grpcfd: joinFileChs end: " + fmt.Sprint(goid()))
 	for file := range in {
 		out <- file
 	}
@@ -167,6 +174,9 @@ func joinFileChs(in <-chan *os.File, out chan<- *os.File) {
 }
 
 func joinFDChs(in <-chan uintptr, out chan<- uintptr) {
+	log.Default().Println("grpcfd: joinFDChs start: " + fmt.Sprint(goid()))
+	defer log.Default().Println("grpcfd: joinFDChs end: " + fmt.Sprint(goid()))
+
 	for fd := range in {
 		out <- fd
 	}
@@ -195,7 +205,8 @@ func PerRPCCredentialsFromCallOptions(opts ...grpc.CallOption) credentials.PerRP
 }
 
 // FromPerRPCCredentials - return grpcfd.FDTransceiver from credentials.PerRPCCredentials
-//                         ok is true of successful, false otherwise
+//
+//	ok is true of successful, false otherwise
 func FromPerRPCCredentials(rpcCredentials credentials.PerRPCCredentials) (transceiver FDTransceiver, ok bool) {
 	if transceiver, ok = rpcCredentials.(FDTransceiver); ok {
 		return transceiver, true
